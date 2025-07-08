@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), ['VITE_OPENAI_API_KEY']);
 
   return {
+    base: '/resume-craft/',
     plugins: [react()],
     define: {
       'import.meta.env': env

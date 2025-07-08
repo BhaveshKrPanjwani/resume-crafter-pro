@@ -1,0 +1,24 @@
+{
+  "name": "resume-backend",
+  "type": "module",
+  "version": "1.0.0",
+  "main": "server.js",
+  "homepage": "https://BhaveshKrPanjwani.github.io/resume-craft/",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "groq-sdk": "^0.26.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "gh-pages": "^6.3.0"
+  }
+}
