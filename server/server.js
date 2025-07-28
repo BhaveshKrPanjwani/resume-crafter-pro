@@ -1,155 +1,269 @@
-// C:\Resume-builder\resume-builder\server\server.js
+import dotenv from "dotenv";
+import express from "express";
+import cors from "cors";
+import Groq from "groq-sdk";
 
-// Change 'require' to 'import' for dotenv
-import dotenv from 'dotenv';
-// Change 'require' to 'import' for express
-import express from 'express';
-// Change 'require' to 'import' for cors
-import cors from 'cors';
-// Change 'require' to 'import' for groq-sdk
-import Groq from 'groq-sdk';
-
-dotenv.config(); // Load environment variables from .env file
+dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3001;
 
-app.use(cors());
-app.use(express.json());
+// Enhanced CORS configuration
+// Replace your current CORS middleware with this:
+app.use(cors({
+  origin: [
+    'http://localhost:5173', // Your Vite dev server
+    'https://your-production-client.vercel.app' // Your production frontend
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+// Handle preflight requests
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+// Handle preflight requests
+app.options('*', cors());
+
+app.use(express.json({ limit: "10mb" }));
 
 const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY,
+  apiKey: process.env.GROQ_API_KEY,
 });
 
+// Health check endpoint
 app.get('/', (req, res) => {
-    res.send('Groq API Proxy is running!');
+  res.status(200).json({
+    status: 'healthy',
+    version: '1.0.0',
+    endpoints: ['/generate-description', '/chat', '/generate-cover-letter', '/analyze-resume'],
+    services: ['Groq AI Integration']
+  });
 });
 
-app.post('/chat', async (req, res) => {
-    try {
-        const { messages, model } = req.body;
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Server error:", err);
+  res.status(500).json({ error: "Internal server error" });
+});
 
-        if (!messages || !Array.isArray(messages) || messages.length === 0) {
-            return res.status(400).json({ error: 'Messages array is required.' });
-        }
-        if (!model) {
-            return res.status(400).json({ error: 'Model is required.' });
-        }
+// Chat completion endpoint
+app.post("/chat", async (req, res) => {
+  try {
+    const { messages, model } = req.body;
 
-        const chatCompletion = await groq.chat.com.pletions.create({
-            messages: messages,
-            model: model,
-        });
-
-        res.json(chatCompletion.choices[0].message);
-    } catch (error) {
-        console.error('Error calling Groq API:', error);
-        res.status(500).json({ error: 'Failed to communicate with Groq API', details: error.message });
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "Messages array is required" });
     }
-});
-
-// --- ADD THIS NEW ENDPOINT FOR COVER LETTER GENERATION ---
-app.post('/generate-cover-letter', async (req, res) => {
-    try {
-        const { resume, job_description, model } = req.body;
-
-        if (!resume || !job_description) {
-            return res.status(400).json({ error: 'Resume data and job description are required.' });
-        }
-        if (!model) {
-            return res.status(400).json({ error: 'Model is required.' });
-        }
-
-        // Craft a detailed prompt for Groq
-        const prompt = `You are an AI assistant specialized in writing professional cover letters.
-        Based on the following resume and job description, write a compelling cover letter.
-        Focus on highlighting relevant skills and experiences from the resume that match the job requirements.
-        Keep it concise, professional, and targeted.
-
-        --- Resume ---
-        ${JSON.stringify(resume, null, 2)}
-
-        --- Job Description ---
-        ${job_description}
-
-        --- Cover Letter ---
-        `;
-
-        const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: model,
-            temperature: 0.7, // Adjust for creativity
-            max_tokens: 1500, // Adjust based on expected cover letter length
-        });
-
-        // The component expects a `letter.content` structure, so we return { content: "..." }
-        res.json({ content: chatCompletion.choices[0].message.content });
-
-    } catch (error) {
-        console.error('Error generating cover letter:', error);
-        res.status(500).json({ error: 'Failed to generate cover letter', details: error.message });
+    if (!model) {
+      return res.status(400).json({ error: "Model is required" });
     }
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages,
+      model,
+      temperature: 0.3,
+      max_tokens: 1000,
+    });
+
+    res.json({
+      content: chatCompletion.choices[0].message.content,
+      usage: chatCompletion.usage,
+    });
+  } catch (error) {
+    console.error("Chat error:", error);
+    res.status(500).json({
+      error: "Failed to process chat request",
+      details: error.message,
+    });
+  }
 });
-app.post('/analyze-resume', async (req, res) => {
-    try {
-        const { resume, model } = req.body;
 
-        if (!resume) {
-            return res.status(400).json({ error: 'Resume data is required.' });
-        }
-        if (!model) {
-            return res.status(400).json({ error: 'Model is required.' });
-        }
+// Description generation endpoint (NEW)
+app.post("/generate-description", async (req, res) => {
+  try {
+    const { section, data } = req.body;
 
-        // Craft a detailed prompt for Groq for resume analysis
-        const prompt = `You are an AI assistant specialized in providing constructive feedback on resumes.
-        Review the following resume and provide a detailed analysis.
-        Identify strengths, weaknesses, and specific suggestions for improvement in areas like:
-        - Formatting and readability
-        - Content clarity and conciseness
-        - Keyword optimization (if a general job type is assumed, or state if unclear)
-        - Action verbs usage
-        - Quantifiable achievements
-        - Overall impact
-
-        Provide the output in a structured JSON format with a 'review' string and an array of 'suggestions' strings.
-
-        --- Resume ---
-        ${JSON.stringify(resume, null, 2)}
-
-        --- Analysis ---
-        `;
-
-        const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: model,
-            temperature: 0.5, // Keep it less creative for factual analysis
-            max_tokens: 1500,
-            response_format: { type: "json_object" } // Request JSON output if supported by model
-        });
-
-        // Attempt to parse the JSON response
-        let analysisResult;
-        try {
-            analysisResult = JSON.parse(chatCompletion.choices[0].message.content);
-        } catch (parseError) {
-            console.error("Failed to parse JSON from Groq:", chatCompletion.choices[0].message.content);
-            // Fallback if parsing fails, return raw content or a generic error
-            return res.status(500).json({
-                error: 'AI response was not valid JSON. Please try again.',
-                rawContent: chatCompletion.choices[0].message.content
-            });
-        }
-
-        res.json(analysisResult);
-
-    } catch (error) {
-        console.error('Error analyzing resume:', error);
-        res.status(500).json({ error: 'Failed to analyze resume', details: error.message });
+    if (!section || !data) {
+      return res.status(400).json({ error: "Section and data are required" });
     }
-});
-// --- END OF NEW ENDPOINT ---
 
+    const prompt = {
+      experience: `Generate 3 specific achievement bullet points for ${data.position} at ${data.company}. Each must:
+- Start with "• "
+- Include metrics (e.g. "improved X by 40%")
+- Focus on technical accomplishments`,
+      project: `Generate 3 technical bullet points for "${
+        data.title
+      }" using ${data.techStack?.join(", ")}. Requirements:
+- Start with "• "
+- Mention specific technologies
+- Include quantifiable results`,
+    }[section];
+
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content:
+            'Generate ONLY 3 bullet points that start with "• " and include specific numbers',
+        },
+        { role: "user", content: prompt },
+      ],
+      model: "llama3-70b-8192",
+      temperature: 0.3,
+      max_tokens: 300,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error("Empty response");
+
+    // Format validation
+    const bulletPoints = content
+      .split("\n")
+      .filter((line) => line.trim().startsWith("•"))
+      .slice(0, 3);
+
+    res.json({ content: bulletPoints.join("\n") });
+  } catch (error) {
+    console.error("Description generation error:", error);
+    res.status(500).json({
+      error: "Failed to generate description",
+      details: error.message,
+    });
+  }
+});
+
+// Cover letter generation endpoint
+app.post("/generate-cover-letter", async (req, res) => {
+  try {
+    const { section, prompt, data } = req.body; // Accept both prompt and data
+
+    // Backwards compatibility
+    const inputData = data || {
+      position: req.body.position,
+      company: req.body.company,
+      title: req.body.title,
+      techStack: req.body.techStack,
+    };
+
+    if (!section || (!prompt && !inputData)) {
+      return res.status(400).json({
+        error: "Section and either prompt or data are required",
+        received: req.body,
+      });
+    }
+
+    // Use provided prompt or generate from data
+    const finalPrompt =
+      prompt ||
+      {
+        experience: `Generate 3 specific achievement bullet points for ${inputData.position} at ${inputData.company}. Each must:
+- Start with "• "
+- Include metrics (e.g. "improved X by 40%")
+- Focus on technical accomplishments`,
+        project: `Generate 3 technical bullet points for "${
+          inputData.title
+        }" using ${inputData.techStack?.join(", ")}. Requirements:
+- Start with "• "
+- Mention specific technologies
+- Include quantifiable results`,
+      }[section];
+
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content:
+            'Generate ONLY 3 bullet points that start with "• " and include specific numbers',
+        },
+        { role: "user", content: finalPrompt },
+      ],
+      model: "llama3-70b-8192",
+      temperature: 0.3,
+      max_tokens: 300,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error("Empty response from Groq API");
+
+    // Format validation
+    const bulletPoints = content
+      .split("\n")
+      .filter((line) => line.trim().startsWith("•"))
+      .slice(0, 3);
+
+    res.json({
+      success: true,
+      content: bulletPoints.join("\n"),
+      model: "llama3-70b-8192",
+    });
+  } catch (error) {
+    console.error("Description generation error:", error);
+    res.status(500).json({
+      error: "Failed to generate description",
+      details: error.message,
+      requestBody: req.body, // For debugging
+    });
+  }
+});
+
+// Resume analysis endpoint
+app.post("/analyze-resume", async (req, res) => {
+  try {
+    const { resume, model = "llama3-70b-8192" } = req.body;
+
+    if (!resume) {
+      return res.status(400).json({ error: "Resume data is required" });
+    }
+
+    const prompt = `Analyze this resume and provide structured feedback:
+    
+    Resume:
+    ${JSON.stringify(resume, null, 2)}
+    
+    Required Analysis:
+    1. Strengths (3 bullet points)
+    2. Weaknesses (3 bullet points)
+    3. Specific improvement suggestions
+    4. ATS compliance score (1-10)
+    5. Overall impression (1 paragraph)`;
+
+    const response = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model,
+      temperature: 0.3,
+      max_tokens: 2000,
+      response_format: { type: "json_object" },
+    });
+
+    try {
+      const analysis = JSON.parse(response.choices[0].message.content);
+      res.json(analysis);
+    } catch (parseError) {
+      throw new Error("Failed to parse AI response");
+    }
+  } catch (error) {
+    console.error("Resume analysis error:", error);
+    res.status(500).json({
+      error: "Failed to analyze resume",
+      details: error.message,
+    });
+  }
+});
+
+// Start server
 app.listen(port, () => {
-    console.log(`Groq API Proxy listening on port ${port}`);
+  console.log(`Server running on port ${port}`);
+  console.log(
+    `Groq API Key: ${process.env.GROQ_API_KEY ? "Configured" : "MISSING"}`
+  );
 });
+
+export default app; // Important for Vercel

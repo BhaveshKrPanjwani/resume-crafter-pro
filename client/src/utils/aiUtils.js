@@ -1,59 +1,29 @@
-// C:\Resume-builder\resume-builder\client\src\utils\aiUtils.js
+// aiUtils.js
+import { fetchWithRetry } from './apiClient';
 
-const BACKEND_URL = 'https://server-mu-smoky.vercel.app'; // Your Vercel backend URL
-
-export async function getGroqCompletion(userMessage, model = 'llama3-8b-8192') {
+export async function getGroqCompletion(userMessage, model = 'llama3-70b-8192') {
   try {
-    const response = await fetch(`${BACKEND_URL}/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: userMessage }],
-        model: model,
-      }),
+    const data = await fetchWithRetry('/chat', {
+      messages: [{ role: 'user', content: userMessage }],
+      model,
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.details || `HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.content; // Assuming the backend sends back { content: "..." }
+    return data.content || '';
   } catch (error) {
-    console.error("Error communicating with backend (getGroqCompletion):", error);
+    console.error("AI Completion Error:", error);
     throw error;
   }
 }
 
-// --- NEW FUNCTION FOR COVER LETTER ---
-export async function generateCoverLetter(resumeData, jobDescription, model = 'llama3-8b-8192') {
+export async function generateCoverLetter(resumeData, jobDescription, model = 'llama3-70b-8192') {
   try {
-    const response = await fetch(`${BACKEND_URL}/generate-cover-letter`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        resume: resumeData, // Pass resume data
-        job_description: jobDescription, // Pass job description
-        model: model,
-      }),
+    const data = await fetchWithRetry('/generate-cover-letter', {
+      resume: resumeData,
+      job_description: jobDescription,
+      model,
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.details || `HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    // Assuming the backend returns the generated cover letter content directly,
-    // or wraps it in an object like { content: "..." }
-    return data; // Return the whole response as the component expects `letter.content`
+    return data.content || data;
   } catch (error) {
-    console.error("Error generating cover letter with backend (generateCoverLetter):", error);
+    console.error("Cover Letter Generation Error:", error);
     throw error;
   }
 }
